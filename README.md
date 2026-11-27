@@ -51,19 +51,18 @@ Environment: `API_URL` (default `http://localhost:8080`), `API_TOKEN`.
 
 ## 3. Add the MCP servers to Claude Code
 
-The server name goes **before** `-e`/`-s`, and the command goes after `--`. Use absolute paths.
+The server name goes **before** `-e`, and the command goes after `--`. Use absolute paths.
+Run these from the project folder: the servers are then available when Claude Code runs in this folder.
 
 ```bash
-claude mcp add hello-api -s user -e API_TOKEN=dev-v2-token -- \
+claude mcp add hello-api -e API_TOKEN=dev-v2-token -- \
   /Users/pivan/private/LLMPlayground/bin/mcpserver
 
-claude mcp add hello-api-fastmcp -s user -e API_TOKEN=dev-v2-token -- \
+claude mcp add hello-api-fastmcp -e API_TOKEN=dev-v2-token -- \
   /Users/pivan/private/LLMPlayground/fastmcpserver/run.sh
 
 claude mcp list
 ```
-
-`-s user` makes them available in every project. Leave it out to limit them to the current folder.
 
 To add the Go server over HTTP instead, start it yourself and connect by URL:
 
