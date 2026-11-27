@@ -53,16 +53,14 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
-	server := mcp.NewServer(&mcp.Implementation{Name: "openapi-bridge", Version: "0.1.0"}, &mcp.ServerOptions{
-		// Advertise tools (with listChanged) even if the API is down at startup
-		// and we have no tools yet.
-		Capabilities: &mcp.ServerCapabilities{Tools: &mcp.ToolCapabilities{ListChanged: true}},
-	})
+	server := newMCPServer()
 
 	// The token comes from the environment, not a flag, so it doesn't show up
 	// in the process list.
 	b := newBridge(server, *apiBase, *specURL, os.Getenv("API_TOKEN"), &http.Client{Timeout: 30 * time.Second})
 	b.forwardAuth = *httpAddr != "" && *forwardAuth // stdio has no headers to forward
+	b.registerResources()
+	registerPrompts(server)
 	if err := b.sync(ctx); err != nil {
 		log.Printf("initial sync failed (will retry): %v", err)
 	}
@@ -103,4 +101,17 @@ func main() {
 		}
 	}
 
+}
+
+// newMCPServer creates the MCP server with the capabilities we need.
+func newMCPServer() *mcp.Server {
+	return mcp.NewServer(&mcp.Implementation{Name: "openapi-bridge", Version: "0.2.0"}, &mcp.ServerOptions{
+		// Advertise tools (with listChanged) even if the API is down at startup
+		// and we have no tools yet.
+		Capabilities: &mcp.ServerCapabilities{Tools: &mcp.ToolCapabilities{ListChanged: true}},
+		// Setting these makes the server advertise resources.subscribe. The SDK
+		// tracks the subscriptions itself; ResourceUpdated notifies subscribers.
+		SubscribeHandler:   func(context.Context, *mcp.SubscribeRequest) error { return nil },
+		UnsubscribeHandler: func(context.Context, *mcp.UnsubscribeRequest) error { return nil },
+	})
 }

@@ -32,7 +32,9 @@ type bridge struct {
 	forwardAuth bool
 
 	mu    sync.Mutex
-	tools map[string]string // tool name -> fingerprint of its operation
+	tools map[string]string    // tool name -> fingerprint of its operation
+	ops   map[string]operation // tool name -> operation, for the operation resources
+	spec  []byte               // last fetched spec, served as a resource
 }
 
 func newBridge(server *mcp.Server, apiBase, specURL, token string, client *http.Client) *bridge {
@@ -59,15 +61,36 @@ func (b *bridge) sync(ctx context.Context) error {
 		return err
 	}
 
+	specChanged, err := b.apply(spec, ops)
+	if err != nil {
+		return err
+	}
+	if specChanged {
+		// Tell clients that subscribed to the spec resource (resources/subscribe).
+		if err := b.server.ResourceUpdated(ctx, &mcp.ResourceUpdatedNotificationParams{URI: specURI}); err != nil {
+			log.Printf("notify resource updated: %v", err)
+		}
+	}
+	return nil
+}
+
+// apply updates tools and stored spec to match ops. It reports whether the
+// spec changed compared to an earlier sync.
+func (b *bridge) apply(spec []byte, ops []operation) (specChanged bool, err error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+
+	specChanged = b.spec != nil && !bytes.Equal(b.spec, spec)
+	b.spec = spec
+	b.ops = make(map[string]operation, len(ops))
 
 	wanted := map[string]bool{}
 	for _, op := range ops {
 		wanted[op.Name] = true
+		b.ops[op.Name] = op
 		fp, err := json.Marshal(op)
 		if err != nil {
-			return err
+			return false, err
 		}
 		if b.tools[op.Name] == string(fp) {
 			continue // unchanged
@@ -97,7 +120,7 @@ func (b *bridge) sync(ctx context.Context) error {
 	if len(removed) > 0 {
 		b.server.RemoveTools(removed...)
 	}
-	return nil
+	return specChanged, nil
 }
 
 func (b *bridge) fetchSpec(ctx context.Context) ([]byte, error) {
