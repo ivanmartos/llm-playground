@@ -51,15 +51,15 @@ Environment: `API_URL` (default `http://localhost:8080`), `API_TOKEN`.
 
 ## 3. Add the MCP servers to Claude Code
 
-The server name goes **before** `-e`, and the command goes after `--`. Use absolute paths.
-Run these from the project folder: the servers are then available when Claude Code runs in this folder.
+The server name goes **before** `-e`, and the command goes after `--`.
+Run these from the project folder: `$PWD` becomes the absolute path that Claude Code needs, and the servers are then available when Claude Code runs in this folder.
 
 ```bash
 claude mcp add hello-api -e API_TOKEN=dev-v2-token -- \
-  /Users/pivan/private/LLMPlayground/bin/mcpserver
+  $PWD/bin/mcpserver
 
 claude mcp add hello-api-fastmcp -e API_TOKEN=dev-v2-token -- \
-  /Users/pivan/private/LLMPlayground/fastmcpserver/run.sh
+  $PWD/fastmcpserver/run.sh
 
 claude mcp list
 ```

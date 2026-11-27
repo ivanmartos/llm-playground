@@ -1,2 +1,6 @@
 # Built binaries (go build -o bin/mcpserver ./mcpserver)
 /bin/
+
+# IDE (JetBrains)
+.idea/
+*.iml
