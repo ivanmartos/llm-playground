@@ -41,13 +41,16 @@ func helloV1(w http.ResponseWriter, r *http.Request) {
 		name = "World"
 	}
 	if len(name) > 100 {
+		log.Printf("helloV1: rejected name of %d characters (from %s)", len(name), r.RemoteAddr)
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "name must be at most 100 characters"})
 		return
 	}
+	log.Printf("helloV1: name=%q (from %s)", name, r.RemoteAddr)
 	writeJSON(w, http.StatusOK, helloResponse{Message: "Hello, " + name + "!"})
 }
 
-func openAPI(w http.ResponseWriter, _ *http.Request) {
+func openAPI(w http.ResponseWriter, r *http.Request) {
+	log.Printf("openAPI requested (from %s)", r.RemoteAddr)
 	w.Header().Set("Content-Type", "application/json")
 	_, _ = w.Write(openAPISpec)
 }
