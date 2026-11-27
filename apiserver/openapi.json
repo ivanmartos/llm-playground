@@ -5,7 +5,11 @@
     "version": "2.0.0",
     "description": "A small versioned hello-world API."
   },
-  "servers": [{ "url": "http://localhost:8080" }],
+  "servers": [
+    {
+      "url": "http://localhost:8080"
+    }
+  ],
   "paths": {
     "/v1/hello": {
       "get": {
@@ -18,7 +22,11 @@
             "in": "query",
             "required": false,
             "description": "Name of the person to greet (max 100 characters).",
-            "schema": { "type": "string", "maxLength": 100, "default": "World" }
+            "schema": {
+              "type": "string",
+              "maxLength": 100,
+              "default": "World"
+            }
           }
         ],
         "responses": {
@@ -29,9 +37,14 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "message": { "type": "string", "example": "Hello, Alice!" }
+                    "message": {
+                      "type": "string",
+                      "example": "Hello, Alice!"
+                    }
                   },
-                  "required": ["message"]
+                  "required": [
+                    "message"
+                  ]
                 }
               }
             }
@@ -42,8 +55,14 @@
               "application/json": {
                 "schema": {
                   "type": "object",
-                  "properties": { "error": { "type": "string" } },
-                  "required": ["error"]
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
                 }
               }
             }
@@ -55,14 +74,23 @@
       "get": {
         "operationId": "helloV2",
         "summary": "Greet someone (v2)",
-        "description": "Returns a v2 greeting for the given name, including the API version. Defaults to 'stranger' if no name is given.",
+        "description": "Returns a v2 greeting for the given name, including the API version. Defaults to 'stranger' if no name is given. Requires a bearer token.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "parameters": [
           {
             "name": "name",
             "in": "query",
             "required": false,
             "description": "Name of the person to greet (max 100 characters).",
-            "schema": { "type": "string", "maxLength": 100, "default": "stranger" }
+            "schema": {
+              "type": "string",
+              "maxLength": 100,
+              "default": "stranger"
+            }
           }
         ],
         "responses": {
@@ -73,10 +101,19 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "greeting": { "type": "string", "example": "Hi Alice, greetings from API v2!" },
-                    "apiVersion": { "type": "string", "example": "v2" }
+                    "greeting": {
+                      "type": "string",
+                      "example": "Hi Alice, greetings from API v2!"
+                    },
+                    "apiVersion": {
+                      "type": "string",
+                      "example": "v2"
+                    }
                   },
-                  "required": ["greeting", "apiVersion"]
+                  "required": [
+                    "greeting",
+                    "apiVersion"
+                  ]
                 }
               }
             }
@@ -87,13 +124,46 @@
               "application/json": {
                 "schema": {
                   "type": "object",
-                  "properties": { "error": { "type": "string" } },
-                  "required": ["error"]
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid bearer token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
                 }
               }
             }
           }
         }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Static bearer token (playground only)."
       }
     }
   }

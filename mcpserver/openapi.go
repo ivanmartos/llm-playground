@@ -17,6 +17,7 @@ type operation struct {
 	Description string         `json:"description"`
 	Params      []param        `json:"params"`
 	HasBody     bool           `json:"hasBody"`
+	Bearer      bool           `json:"bearer"` // spec says: needs a bearer token
 	InputSchema map[string]any `json:"inputSchema"`
 }
 
@@ -30,7 +31,14 @@ const bodyArg = "body"
 
 // Minimal subset of OpenAPI 3.x that we need.
 type openAPIDoc struct {
-	Paths map[string]map[string]json.RawMessage `json:"paths"`
+	Paths      map[string]map[string]json.RawMessage `json:"paths"`
+	Security   []map[string][]string                 `json:"security"`
+	Components struct {
+		SecuritySchemes map[string]struct {
+			Type   string `json:"type"`
+			Scheme string `json:"scheme"`
+		} `json:"securitySchemes"`
+	} `json:"components"`
 }
 
 type openAPIOperation struct {
@@ -38,6 +46,8 @@ type openAPIOperation struct {
 	Summary     string         `json:"summary"`
 	Description string         `json:"description"`
 	Parameters  []openAPIParam `json:"parameters"`
+	// nil = not set, use the document-level security; empty = public.
+	Security    *[]map[string][]string `json:"security"`
 	RequestBody *struct {
 		Description string `json:"description"`
 		Required    bool   `json:"required"`
@@ -61,11 +71,19 @@ var invalidToolNameChars = regexp.MustCompile(`[^A-Za-z0-9_.-]+`)
 
 // parseOperations turns an OpenAPI document into a list of operations,
 // sorted by tool name. Limitations (fine for a playground): no $ref
-// resolution, only JSON request bodies, no cookie parameters.
+// resolution, only JSON request bodies, no cookie parameters, and the only
+// security scheme understood is HTTP bearer.
 func parseOperations(specJSON []byte) ([]operation, error) {
 	var doc openAPIDoc
 	if err := json.Unmarshal(specJSON, &doc); err != nil {
 		return nil, fmt.Errorf("parse OpenAPI spec: %w", err)
+	}
+
+	bearerSchemes := map[string]bool{}
+	for name, s := range doc.Components.SecuritySchemes {
+		if strings.EqualFold(s.Type, "http") && strings.EqualFold(s.Scheme, "bearer") {
+			bearerSchemes[name] = true
+		}
 	}
 
 	var ops []operation
@@ -89,6 +107,11 @@ func parseOperations(specJSON []byte) ([]operation, error) {
 				return nil, fmt.Errorf("%s %s: %w", strings.ToUpper(method), path, err)
 			}
 			op := buildOperation(method, path, o, shared)
+			security := doc.Security
+			if o.Security != nil {
+				security = *o.Security
+			}
+			op.Bearer = usesBearer(security, bearerSchemes)
 			if seen[op.Name] {
 				return nil, fmt.Errorf("duplicate tool name %q", op.Name)
 			}
@@ -183,6 +206,19 @@ func buildOperation(method, path string, o openAPIOperation, shared []openAPIPar
 		op.InputSchema["required"] = required
 	}
 	return op
+}
+
+// usesBearer reports whether any of the security requirements refers to a
+// bearer scheme.
+func usesBearer(requirements []map[string][]string, bearerSchemes map[string]bool) bool {
+	for _, req := range requirements {
+		for name := range req {
+			if bearerSchemes[name] {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func copyMap(m map[string]any) map[string]any {

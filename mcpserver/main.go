@@ -10,6 +10,15 @@
 //	mcpserver                               # stdio transport (Claude Code, Claude Desktop, ...)
 //	mcpserver -http :8090                   # streamable HTTP transport at http://localhost:8090/mcp
 //	mcpserver -api http://localhost:8080 -refresh 5s
+//
+// Environment:
+//
+//	API_TOKEN  bearer token sent to operations whose spec entry requires bearer auth
+//
+// In HTTP mode with -forward-auth (default), the bearer token from the MCP
+// client's Authorization header is forwarded to secured operations instead.
+// This "token passthrough" is fine for a playground but forbidden by the MCP
+// spec for production (use OAuth + token exchange there).
 package main
 
 import (
@@ -30,6 +39,7 @@ func main() {
 	specURL := flag.String("spec", "", "URL of the OpenAPI spec (default: <api>/openapi.json)")
 	refresh := flag.Duration("refresh", 10*time.Second, "how often to re-read the spec (0 disables)")
 	httpAddr := flag.String("http", "", "serve MCP over streamable HTTP on this address instead of stdio")
+	forwardAuth := flag.Bool("forward-auth", true, "HTTP mode: forward the MCP client's bearer token to secured API operations")
 	flag.Parse()
 
 	if *specURL == "" {
@@ -49,7 +59,10 @@ func main() {
 		Capabilities: &mcp.ServerCapabilities{Tools: &mcp.ToolCapabilities{ListChanged: true}},
 	})
 
-	b := newBridge(server, *apiBase, *specURL, &http.Client{Timeout: 30 * time.Second})
+	// The token comes from the environment, not a flag, so it doesn't show up
+	// in the process list.
+	b := newBridge(server, *apiBase, *specURL, os.Getenv("API_TOKEN"), &http.Client{Timeout: 30 * time.Second})
+	b.forwardAuth = *httpAddr != "" && *forwardAuth // stdio has no headers to forward
 	if err := b.sync(ctx); err != nil {
 		log.Printf("initial sync failed (will retry): %v", err)
 	}

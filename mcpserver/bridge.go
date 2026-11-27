@@ -24,17 +24,24 @@ type bridge struct {
 	apiBase string // e.g. http://localhost:8080
 	specURL string // e.g. http://localhost:8080/openapi.json
 	client  *http.Client
+	token   string // fallback bearer token for operations that require one
+
+	// forwardAuth: in HTTP mode, use the bearer token from the incoming MCP
+	// request's Authorization header (falls back to token if absent).
+	// Note: the MCP spec forbids this "token passthrough" in production.
+	forwardAuth bool
 
 	mu    sync.Mutex
 	tools map[string]string // tool name -> fingerprint of its operation
 }
 
-func newBridge(server *mcp.Server, apiBase, specURL string, client *http.Client) *bridge {
+func newBridge(server *mcp.Server, apiBase, specURL, token string, client *http.Client) *bridge {
 	return &bridge{
 		server:  server,
 		apiBase: strings.TrimRight(apiBase, "/"),
 		specURL: specURL,
 		client:  client,
+		token:   token,
 		tools:   map[string]string{},
 	}
 }
@@ -73,9 +80,9 @@ func (b *bridge) sync(ctx context.Context) error {
 		}, b.handler(op))
 		b.tools[op.Name] = string(fp)
 		if existed {
-			log.Printf("tool updated: %s (%s %s)", op.Name, op.Method, op.Path)
+			log.Printf("tool updated: %s (%s %s)%s", op.Name, op.Method, op.Path, b.authNote(op))
 		} else {
-			log.Printf("tool added:   %s (%s %s)", op.Name, op.Method, op.Path)
+			log.Printf("tool added:   %s (%s %s)%s", op.Name, op.Method, op.Path, b.authNote(op))
 		}
 	}
 
@@ -121,7 +128,7 @@ func (b *bridge) handler(op operation) mcp.ToolHandler {
 			}
 		}
 
-		httpReq, err := b.buildRequest(ctx, op, args)
+		httpReq, err := b.buildRequest(ctx, op, args, b.tokenFor(req))
 		if err != nil {
 			return errorResult("%v", err), nil
 		}
@@ -146,7 +153,18 @@ func (b *bridge) handler(op operation) mcp.ToolHandler {
 	}
 }
 
-func (b *bridge) buildRequest(ctx context.Context, op operation, args map[string]any) (*http.Request, error) {
+// tokenFor picks the bearer token for one tool call: the one the MCP client
+// sent (HTTP transport with forwarding on), else the configured API_TOKEN.
+func (b *bridge) tokenFor(req *mcp.CallToolRequest) string {
+	if b.forwardAuth && req.Extra != nil && req.Extra.Header != nil {
+		if tok, ok := strings.CutPrefix(req.Extra.Header.Get("Authorization"), "Bearer "); ok && tok != "" {
+			return tok
+		}
+	}
+	return b.token
+}
+
+func (b *bridge) buildRequest(ctx context.Context, op operation, args map[string]any, token string) (*http.Request, error) {
 	path := op.Path
 	query := url.Values{}
 	headers := http.Header{}
@@ -200,7 +218,27 @@ func (b *bridge) buildRequest(ctx context.Context, op operation, args map[string
 		req.Header[k] = vs
 	}
 	req.Header.Set("Accept", "application/json")
+	// Only send the token where the spec asks for it, so it never leaks to
+	// public endpoints.
+	if op.Bearer && token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
 	return req, nil
+}
+
+func (b *bridge) authNote(op operation) string {
+	switch {
+	case !op.Bearer:
+		return ""
+	case b.forwardAuth && b.token == "":
+		return " [bearer auth: forwarded from MCP client]"
+	case b.forwardAuth:
+		return " [bearer auth: forwarded from MCP client, else API_TOKEN]"
+	case b.token == "":
+		return " [needs bearer token, but API_TOKEN is not set: calls will fail]"
+	default:
+		return " [bearer auth]"
+	}
 }
 
 func errorResult(format string, a ...any) *mcp.CallToolResult {
