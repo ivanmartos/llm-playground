@@ -3,6 +3,7 @@
 // Endpoints:
 //
 //	GET /v1/hello?name=Alice  -> {"message":"Hello, Alice!"}
+//	GET /v2/hello?name=Alice  -> {"greeting":"Hi Alice, greetings from API v2!","apiVersion":"v2"}
 //	GET /openapi.json         -> OpenAPI spec describing the API
 package main
 
@@ -20,6 +21,13 @@ var openAPISpec []byte
 
 type helloResponse struct {
 	Message string `json:"message"`
+}
+
+// helloV2Response is the v2 output: a different field name and an extra field,
+// to show that output changes pass through the MCP bridge untouched.
+type helloV2Response struct {
+	Greeting   string `json:"greeting"`
+	APIVersion string `json:"apiVersion"`
 }
 
 type errorResponse struct {
@@ -49,6 +57,24 @@ func helloV1(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, helloResponse{Message: "Hello, " + name + "!"})
 }
 
+// helloV2 handles GET /v2/hello?name=<name>.
+func helloV2(w http.ResponseWriter, r *http.Request) {
+	name := strings.TrimSpace(r.URL.Query().Get("name"))
+	if name == "" {
+		name = "stranger"
+	}
+	if len(name) > 100 {
+		log.Printf("[v2] hello: refusing over-long name (%d chars) from %s", len(name), r.RemoteAddr)
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "name must be at most 100 characters"})
+		return
+	}
+	log.Printf("[v2] hello: greeting %q, client %s, user-agent %q", name, r.RemoteAddr, r.UserAgent())
+	writeJSON(w, http.StatusOK, helloV2Response{
+		Greeting:   "Hi " + name + ", greetings from API v2!",
+		APIVersion: "v2",
+	})
+}
+
 func openAPI(w http.ResponseWriter, r *http.Request) {
 	log.Printf("openAPI requested (from %s)", r.RemoteAddr)
 	w.Header().Set("Content-Type", "application/json")
@@ -58,6 +84,7 @@ func openAPI(w http.ResponseWriter, r *http.Request) {
 func newMux() *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/hello", helloV1)
+	mux.HandleFunc("GET /v2/hello", helloV2)
 	mux.HandleFunc("GET /openapi.json", openAPI)
 	return mux
 }
