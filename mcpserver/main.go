@@ -1,0 +1,93 @@
+// Command mcpserver is an MCP server that exposes an HTTP API as MCP tools,
+// generated from the API's OpenAPI spec.
+//
+// It re-reads the spec periodically. When endpoints are added, changed or
+// removed, it updates its tools and notifies connected clients
+// (notifications/tools/list_changed), so no code changes are needed here.
+//
+// Usage:
+//
+//	mcpserver                               # stdio transport (Claude Code, Claude Desktop, ...)
+//	mcpserver -http :8090                   # streamable HTTP transport at http://localhost:8090/mcp
+//	mcpserver -api http://localhost:8080 -refresh 5s
+package main
+
+import (
+	"context"
+	"flag"
+	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"strings"
+	"time"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+)
+
+func main() {
+	apiBase := flag.String("api", "http://localhost:8080", "base URL of the API")
+	specURL := flag.String("spec", "", "URL of the OpenAPI spec (default: <api>/openapi.json)")
+	refresh := flag.Duration("refresh", 10*time.Second, "how often to re-read the spec (0 disables)")
+	httpAddr := flag.String("http", "", "serve MCP over streamable HTTP on this address instead of stdio")
+	flag.Parse()
+
+	if *specURL == "" {
+		*specURL = strings.TrimRight(*apiBase, "/") + "/openapi.json"
+	}
+
+	// With stdio, stdout carries the MCP protocol: logs must go to stderr.
+	log.SetOutput(os.Stderr)
+	log.SetPrefix("[mcpserver] ")
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+
+	server := mcp.NewServer(&mcp.Implementation{Name: "openapi-bridge", Version: "0.1.0"}, &mcp.ServerOptions{
+		// Advertise tools (with listChanged) even if the API is down at startup
+		// and we have no tools yet.
+		Capabilities: &mcp.ServerCapabilities{Tools: &mcp.ToolCapabilities{ListChanged: true}},
+	})
+
+	b := newBridge(server, *apiBase, *specURL, &http.Client{Timeout: 30 * time.Second})
+	if err := b.sync(ctx); err != nil {
+		log.Printf("initial sync failed (will retry): %v", err)
+	}
+	if *refresh > 0 {
+		go func() {
+			t := time.NewTicker(*refresh)
+			defer t.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-t.C:
+					if err := b.sync(ctx); err != nil {
+						log.Printf("sync failed: %v", err)
+					}
+				}
+			}
+		}()
+	}
+
+	if *httpAddr != "" {
+		handler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, nil)
+		mux := http.NewServeMux()
+		mux.Handle("/mcp", handler)
+		srv := &http.Server{Addr: *httpAddr, Handler: mux}
+		go func() {
+			<-ctx.Done()
+			_ = srv.Close()
+		}()
+		log.Printf("serving MCP on %s at path /mcp (API %s)", *httpAddr, *apiBase)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatal(err)
+		}
+	} else {
+		log.Printf("serving MCP on stdio (API %s)", *apiBase)
+		if err := server.Run(ctx, &mcp.StdioTransport{}); err != nil && ctx.Err() == nil {
+			log.Fatal(err)
+		}
+	}
+
+}
